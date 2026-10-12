@@ -1,6 +1,6 @@
 ---
 name: commandcode-goat-models
-description: 实时抓取 Command Code GOAT Plan 模型清单并匹配 API Model ID，再从 models.dev 按供应商优先级（opencode-go/openrouter/openai/anthropic）、映射表与规范化规则匹配模型元数据，把匹配情况表落盘为 result.md、结果 JSON 落盘为 models.json。Use when checking GOAT models, Command Code model updates, or generating models.dev metadata for Command Code model IDs.
+description: 实时抓取 Command Code GOAT Plan 模型清单并匹配 API Model ID，再从 models.dev 按供应商优先级（openrouter/opencode-go/openai/anthropic）、映射表与规范化规则匹配模型元数据，把匹配情况表落盘为 result.md、结果 JSON 落盘为 models.json。Use when checking GOAT models, Command Code model updates, or generating models.dev metadata for Command Code model IDs.
 ---
 
 # Command Code GOAT Plan 模型核对
@@ -31,7 +31,7 @@ description: 实时抓取 Command Code GOAT Plan 模型清单并匹配 API Model
 
 ### 3. 整理模型清单
 
-把步骤 1、2 的结果整理为 `| Name | Model ID |` 工作清单供步骤 5、6 引用；不落盘、不在回复中输出。
+整理步骤 1 的全部 `Name` 及对应 `Model ID`；未找到 ID 的保留该行，`Model ID` 填 `—`。工作清单供步骤 5、6 引用；不落盘、不在回复中输出。
 
 ### 4. 准备临时目录并下载 models.dev 数据
 
@@ -65,7 +65,7 @@ description: 实时抓取 Command Code GOAT Plan 模型清单并匹配 API Model
 
 把步骤 5 的结果写入当前工作目录，回复只回执这两个文件路径：
 
-1. **匹配情况** → `result.md`，覆盖步骤 3 全部 `Model ID` 的 Markdown 表格：
+1. **匹配情况** → `result.md`，覆盖步骤 3 全部条目的 Markdown 表格：
 
 | Model ID | Name | 状态 | 供应商 | 匹配键 | 方式 |
 | --- | --- | --- | --- | --- | --- |
