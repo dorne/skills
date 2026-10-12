@@ -1,45 +1,55 @@
 ---
 name: commandcode-goat-models
-description: 实时抓取 Command Code GOAT Plan 模型清单并匹配 API Model ID，再从 models.dev 按供应商优先级（opencode-go/openrouter/openai/anthropic）、映射表与规范化规则匹配模型元数据，输出匹配情况表与结果 JSON。Use when checking GOAT models, Command Code model updates, or generating models.dev metadata for Command Code model IDs.
+description: 实时读取 Command Code GOAT Plan 模型清单，匹配 API Model ID，并按指定供应商优先级从 models.dev 获取模型元数据，生成匹配报告 result.md 与结果文件 models.json。Use when checking GOAT models, Command Code model updates, or generating models.dev metadata for Command Code model IDs.
 ---
 
 # Command Code GOAT Plan 模型核对
 
-实时抓取官网 GOAT 模型清单，匹配 `Model ID`，再从 `models.dev` 按供应商优先级、映射表与规范化规则为每个模型匹配元数据，最后输出「匹配情况」表与结果 JSON。全过程不改动任何本地配置。
+从 Command Code 官网获取 GOAT Plan 模型及其 API Model ID，再从 `models.dev` 匹配模型元数据。最终在当前目录生成 `result.md` 和 `models.json`。除这两个结果文件外，不修改或生成其他工作区文件；临时下载数据存放于操作系统临时目录，并在结束时清理。
 
-## 步骤
+## 数据源
 
-### 1. 抓取与提取
+- GOAT Plan 模型清单：<https://commandcode.ai/docs/plans/goat>
+- Command Code API Model ID：<https://commandcode.ai/docs/reference/cli/models>
+- 模型元数据：<https://models.dev/api.json>
 
-`webfetch` `https://commandcode.ai/docs/plans/goat`：
+## 流程
 
-- 取 `Models included` 小节链接文字为模型 `Name`（如 `[Gemini 3.8 Flash](/models/...)`）。
-- 删除促销/定价角标（如 `Free`、`-50%`、`-98%`、`Off-peak`）；忽略 `Usage limits`、`Premium models`、`New models`、`Older models` 等表中的重复模型，每模型只计一次。
-- 校验：提取数量须等于标签 `GOAT plan N` 的 `N`；无该标签则提示页面已改版，需更新规则。
+### 1. 获取并校验 GOAT Plan 模型
 
-### 2. 匹配 Model ID
+读取 GOAT Plan 页面 `Models included` 小节的模型链接文字作为原始 `Name`。
 
-`webfetch` `https://commandcode.ai/docs/reference/cli/models`：
+- 移除模型名旁的促销或定价角标，例如 `Free`、`-50%`、`-98%`、`Off-peak`；不把角标纳入 `Name`。
+- 只统计 `Models included` 中的模型。其他分区（如 `Usage limits`、`Premium models`、`New models`、`Older models`）不用于补充清单或重复计数。
+- 以 `GOAT plan N` 标签中的 `N` 校验提取数量。页面没有该标签或数量不一致时，停止处理并说明页面结构已变化；不要继续生成结果文件。
 
-- 按 `Name` 精确匹配 `Model ID`，禁止凭名称、slug 或记忆猜测；匹配不到标记 `未匹配`（步骤 6 表格中该行 Model ID 填 `未匹配`、状态 `❌`）。
-- 排序：`Name` 转小写后按 ASCII 码序升序（不按 Model ID、厂商或官网顺序）。本技能所有输出都按此排序。
+### 2. 将模型名称映射到 API Model ID
 
-### 3. 整理模型清单
+读取 API Model ID 页面，按原始 `Name` 精确查找对应的 `Model ID`。不得根据模型名、slug 或记忆推断 ID。
 
-将步骤 1、2 的结果整理为两列 `| Name | Model ID |` 的工作清单，供步骤 5、6 引用；该清单是内部产物，不在回复中单独输出（回复只含步骤 6 的两部分）。
+- 找到时记录官网给出的 `Model ID`。
+- 找不到时保留原始 `Name`，并将该项标记为「ID 未找到」。
+- 按 `Name` 的小写字符串进行 ASCII 升序排序；后续清单、报告和 JSON 均沿用此顺序，不再另行排序。
 
-### 4. 准备临时目录并下载 models.dev 数据
+### 3. 获取 models.dev 数据
 
-- 在操作系统临时文件夹（如 `$env:TEMP` / `$TMPDIR`）新建 `commandcode-goat-models-<时间戳>` 文件夹；本技能所有写入操作均只写入该文件夹。
-- 获取 `https://models.dev/api.json`（约 5 MB）并保存到该文件夹；若 `webfetch` 结果过大被截断，改用 shell 下载（如 `Invoke-WebRequest` / `curl`）。
+在操作系统临时目录中新建唯一目录 `commandcode-goat-models-<时间戳>`，下载并保存 `https://models.dev/api.json`。若 `webfetch` 内容被截断，改用 shell 下载（例如 `Invoke-WebRequest` 或 `curl`）。此临时目录仅用于存放下载数据及必要的临时文件。
 
-### 5. 匹配模型
+### 4. 按优先级匹配模型元数据
 
-供应商优先级：`["opencode-go", "openrouter", "openai", "anthropic"]`（顺序即优先级，可按需增删）。
+供应商优先级如下，命中后立即停止，不再查询后续供应商：
 
-对步骤 3 的每个 `Model ID`，先确定查找键（优先级从高到低）：
+```text
+opencode-go → openrouter → openai → anthropic
+```
 
-1. **映射表优先**：命中下方映射表（结构 `{ "Model ID": "目标键" }`，直接在本文件内增删即可）时，以「目标键」为查找键；随后仍按供应商优先级与精确/规范化规则匹配它。
+对每个已找到 `Model ID` 的模型，按以下规则确定查找键：
+
+1. 若原始 `Model ID` 命中下方映射表，以映射值作为查找键；否则以原始 `Model ID` 作为查找键。
+2. 按供应商优先级逐一查找。在每个供应商内，先比较完整键是否精确相等；未命中时，再按下述规范化规则比较。
+3. 命中后记录供应商 ID、供应商模型表中的实际键及模型属性。
+
+映射表的键是 Command Code 的原始 `Model ID`，值是 models.dev 查找键：
 
 ```json
 {
@@ -55,43 +65,57 @@ description: 实时抓取 Command Code GOAT Plan 模型清单并匹配 API Model
 }
 ```
 
-2. **规则匹配**：未命中映射表时，用当前 `Model ID` 本身作为查找键。
+规范化仅用于精确键查找失败后的回退比较：
 
-「查找键」是用于在供应商模型表中检索的键；步骤 6 表格的「匹配键」填供应商侧实际命中的键。
+- 将键转为小写。
+- 仅对第一个 `/` 前的供应商标识应用别名：`minimaxai` → `minimax`、`xai` → `x-ai`、`mistral` → `mistralai`、`zai-org` → `z-ai`。
+- 移除键末尾的一个限定符：`:free`、`-free`、`-paid` 或 `-0`。
+- 若多个供应商键规范化后相同，优先选择不带 `:free` 的键；如仍有多个候选，按原始键 ASCII 升序选择，确保结果确定。
 
-拿到查找键后，按供应商优先级依次匹配；同一供应商先精确键匹配，未中再按键规范化匹配：
+匹配来源和方式分别记录：
 
-- 规范化规则：转小写；`/` 前厂商标识按别名表归一（`minimaxai`→`minimax`、`xai`→`x-ai`、`mistral`→`mistralai`、`zai-org`→`z-ai`）；去掉结尾限定符 `:free`、`-free`、`-paid`、`-0`。规范化键冲突时优先取不带 `:free` 的键。
-- 命中即采用该模型属性（记录时删除 `id` 和 `canonical_model_id`），并记录来源供应商，不再尝试后续供应商。
-- **`name` 永远以原始 Model Name 为准**：无论精确、映射还是规范化命中，结果里的 `name` 一律覆盖为步骤 2 匹配到的 Command Code 原始 `Name`，不保留 models.dev 的名字。因为映射/规范化会指向另一条 models.dev 记录，其 `name` 可能丢掉 `Fast`、`HighSpeed`、`0902` 等后缀，或与官网名称大小写/空格不一致（例如 `deepseek/deepseek-v4.1-flash-fast` 会错误地拿到 `DeepSeek V4.1 Flash`，此时必须用官网原始名 `DeepSeek V4.1 Flash Fast` 覆盖）。
-- 所有供应商均未命中：跳过，但仍记录该 `Model ID`，供步骤 6 汇总。
+- 来源是命中的供应商 ID。
+- 若原始 `Model ID` 使用了映射表，方式记为 `映射`，不论映射后的查找是精确还是规范化命中。
+- 未使用映射表时，完整键相等记为 `精确`；仅规范化后相等记为 `规范化`。
+- 所有供应商均未命中时，记为「元数据未找到」。
 
-### 6. 输出结果
+生成 JSON 属性时，复制命中模型的全部元数据，但删除顶层 `id` 和 `canonical_model_id`，并将顶层 `name` 覆盖为 Command Code 页面提取的原始 `Name`。不得沿用 models.dev 的 `name`，以免映射或规范化命中时丢失官网名称后缀或格式。
 
-除步骤 4 的临时文件外不再生成产物文件，直接在回复中输出，分两部分；**两部分均按 `Name` 转小写 ASCII 升序排列**（同步骤 2）：
+### 5. 生成结果文件
 
-1. **匹配情况**：覆盖步骤 3 全部 `Model ID` 的 Markdown 表格：
+在当前目录写入且仅写入以下两个结果文件。两者的模型顺序均沿用步骤 2 的排序。
+
+#### `result.md`
+
+文件内容为覆盖全部 GOAT 模型的 Markdown 表格，列顺序固定如下：
 
 | Model ID | Name | 状态 | 供应商 | 匹配键 | 方式 |
 | --- | --- | --- | --- | --- | --- |
-| `<Model ID>` | 该 `Model ID` 对应的原始 `Name`（取自官网，始终与结果 JSON 的 `name` 一致） | `✅` / `❌` | 命中的供应商 id，如 `openrouter`、`openai`；未匹配 `—` | 供应商侧实际命中的键；未匹配 `—` | `映射` / `精确` / `规范化`；未匹配 `—` |
 
-- 状态：`✅` 匹配、`❌` 未匹配。
-- 供应商：命中的供应商 id，说明该模型取自哪个提供商。
-- 方式：`映射`（经映射表命中）、`精确`（原键精确命中）、`规范化`（归一后命中）。判定优先级：命中映射表即记 `映射`；未命中映射表时，精确键命中记 `精确`，归一命中记 `规范化`。
+字段规则：
 
-2. **结果 JSON**：仅包含匹配到的模型，`models` 的键按同一顺序排列；每条属性一律删除 `id` 与 `canonical_model_id`，且 `name` 一律为步骤 2 的原始 `Name`（见步骤 5），格式如下：
+- `Model ID`：API ID 查找成功时写原始 ID；查找失败时写 `未匹配`。
+- `Name`：始终写官网提取的原始名称。
+- `状态`：只有元数据匹配成功时写 `✅`；ID 或元数据任一未找到时写 `❌`。
+- `供应商`、`匹配键`、`方式`：元数据匹配成功时按步骤 4 填写；未成功时均写 `—`。
+
+表格前后不添加其他说明文字。
+
+#### `models.json`
+
+写入合法 JSON，顶层结构为 `{"models": {...}}`。仅包含元数据匹配成功的模型；每个键为原始 Command Code `Model ID`，每个值为步骤 4 处理后的模型属性。键的顺序沿用步骤 2 的排序。未找到 ID 或未匹配到元数据的模型不写入 JSON。
 
 ```json
 {
   "models": {
-    "Model ID": {
-      "...": "匹配到的属性（已删除 id、canonical_model_id）"
+    "<原始 Model ID>": {
+      "name": "<Command Code 原始 Name>",
+      "...": "其他元数据（已删除 id 与 canonical_model_id）"
     }
   }
 }
 ```
 
-### 7. 清理临时文件
+### 6. 清理临时数据
 
-输出完成后，彻底删除步骤 4 新建的 `commandcode-goat-models-<时间戳>` 文件夹及其全部内容。
+确认 `result.md` 与 `models.json` 已成功写入当前目录后，删除本次创建的 `commandcode-goat-models-<时间戳>` 临时目录及其内容。不得删除或覆盖其他目录中的文件。
